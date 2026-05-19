@@ -42,7 +42,7 @@ docker_run: docker_build
 docker_clean:
 	rm -rf data/bronze/*
 	rm -rf data/silver/*
-	rm -rf data/gold/*
+#	rm -rf data/gold/*
 	docker compose down --volumes --remove-orphans
 
 
