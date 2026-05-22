@@ -7,7 +7,7 @@ from src.logger import get_logger
 
 logger = get_logger(__name__)
 
-# # Defines the strict schema for market data to ensure quality
+
 class MarketDataRow(BaseModel):
     symbol: str = Field(min_length=1)
     date: date
@@ -17,14 +17,14 @@ class MarketDataRow(BaseModel):
     close: float
     volume: int
 
-# # Iterates through a DataFrame to validate each row against the Pydantic model
+
 def validate_bronze_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     valid_rows: List[dict] = []
     rejected = 0
 
     for _, row in df.iterrows():
         try:
-            # Note: We map "Date", "Open", etc. from yfinance to our lowercase schema
+            # yfinance uses title-case columns (Date, Open, etc.) — map to our lowercase schema
             record = MarketDataRow(
                 symbol=row["symbol"],
                 date=row["Date"],
@@ -42,18 +42,17 @@ def validate_bronze_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     logger.info(f"Validation complete: {len(silver_df)} passed, {rejected} rejected")
     return silver_df
 
-# # Reads a raw bronze CSV and triggers the validation logic
+
 def validate_bronze_csv(path: Path) -> pd.DataFrame:
     logger.info(f"Validating file: {path.name}")
-    df = pd.read_csv(path)
-    return validate_bronze_dataframe(df)
+    return validate_bronze_dataframe(pd.read_csv(path))
 
-# # Saves the validated DataFrame to the silver directory defined in config
+
 def save_silver_dataframe(df: pd.DataFrame, source_file: Path, silver_dir: Path) -> Path:
     silver_dir.mkdir(parents=True, exist_ok=True)
     run_date = datetime.now(timezone.utc).date().isoformat()
     output_path = silver_dir / f"{source_file.stem}_silver_{run_date}.csv"
-    
+
     df.to_csv(output_path, index=False)
     logger.info(f"Silver file saved: {output_path.name}")
     return output_path

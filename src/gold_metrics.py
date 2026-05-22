@@ -1,15 +1,14 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 import json
 import pandas as pd
-from typing import Optional
 from src.logger import get_logger
 
 
-# Loads all available silver files to create a unified dataset for analysis
 def load_all_silver_data(
     silver_dir: Path,
-    logger: Optional[object] = None  
+    logger: Optional[object] = None,
 ) -> pd.DataFrame:
 
     if logger is None:
@@ -21,16 +20,16 @@ def load_all_silver_data(
         logger.error(f"No silver files found in {silver_dir}")
         raise FileNotFoundError("Empty Silver Layer")
 
-    dfs = [pd.read_csv(file, parse_dates=["date"]) for file in files]
-    df = pd.concat(dfs, ignore_index=True)
+    df = pd.concat(
+        [pd.read_csv(f, parse_dates=["date"]) for f in files],
+        ignore_index=True,
+    )
 
-    # Remove duplicates across multiple runs
     before = len(df)
     df = df.drop_duplicates(subset=["symbol", "date"])
-    after = len(df)
 
-    if before != after:
-        logger.info(f"Removed {before - after} duplicate rows from Silver data")
+    if len(df) < before:
+        logger.info(f"Removed {before - len(df)} duplicate rows from Silver data")
 
     if df.empty:
         logger.error("Silver dataset is empty after deduplication")
@@ -39,10 +38,9 @@ def load_all_silver_data(
     return df
 
 
-# Calculates moving averages and latest price points for each asset
 def compute_aggregates(
     df: pd.DataFrame,
-    logger: Optional[object] = None   # ✅ OPTIONAL
+    logger: Optional[object] = None,
 ) -> pd.DataFrame:
 
     if logger is None:
@@ -55,7 +53,6 @@ def compute_aggregates(
 
     for symbol, group in df.groupby("symbol"):
         latest = group.iloc[-1]
-
         results.append({
             "symbol": symbol,
             "latest_date": latest["date"].date().isoformat(),
@@ -68,7 +65,6 @@ def compute_aggregates(
     return pd.DataFrame(results)
 
 
-# Checks the time difference between the last data point and today
 def compute_data_freshness(df: pd.DataFrame) -> dict:
     today = datetime.now(timezone.utc).date()
     freshness = {}
@@ -80,13 +76,12 @@ def compute_data_freshness(df: pd.DataFrame) -> dict:
         freshness[symbol] = {
             "last_date": last_date.isoformat(),
             "days_stale": days_since,
-            "status": "STALE" if days_since > 2 else "FRESH"
+            "status": "STALE" if days_since > 2 else "FRESH",
         }
 
     return freshness
 
 
-# Orchestrates the gold layer transformation
 def run_gold_layer(
     silver_dir: Path,
     gold_dir: Path,
@@ -94,7 +89,6 @@ def run_gold_layer(
 ) -> None:
 
     logger = get_logger(__name__, run_id=run_id)
-
     logger.info("Starting Gold Layer processing")
 
     gold_dir.mkdir(parents=True, exist_ok=True)
@@ -109,5 +103,4 @@ def run_gold_layer(
     with open(gold_dir / "freshness.json", "w") as f:
         json.dump(freshness, f, indent=2)
 
-    logger.info("Freshness report written")
     logger.info("Gold metrics written successfully")

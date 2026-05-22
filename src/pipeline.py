@@ -1,12 +1,9 @@
 import yaml
+import sentry_sdk
 from datetime import datetime, timezone
 from pathlib import Path
 
-# --- Monitoring ---
 from src.monitoring import init_monitoring, set_run_context
-import sentry_sdk
-
-# --- Pipeline Modules ---
 from src.ingestion import ingest_all_assets
 from src.validation import validate_bronze_csv, save_silver_dataframe
 from src.storage import insert_silver_dataframe
@@ -14,9 +11,7 @@ from src.gold_metrics import run_gold_layer
 from src.logger import get_logger
 
 
-# Initialize monitoring
 init_monitoring()
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "assets.yaml"
@@ -31,8 +26,8 @@ config = load_config()
 
 BRONZE_DIR = PROJECT_ROOT / config["paths"]["bronze"]
 SILVER_DIR = PROJECT_ROOT / config["paths"]["silver"]
-GOLD_DIR = PROJECT_ROOT / config["paths"]["gold"]
-TICKERS = config["assets"]
+GOLD_DIR   = PROJECT_ROOT / config["paths"]["gold"]
+TICKERS    = config["assets"]
 
 
 def run_pipeline() -> None:
@@ -48,12 +43,9 @@ def run_pipeline() -> None:
         start_date = config.get("start_date", "2020-01-01")
         end_date = config.get("end_date") or datetime.now(timezone.utc).date().isoformat()
 
-        logger.info(
-            f"Context: {len(TICKERS)} assets | Timeframe: {start_date} to {end_date}"
-        )
+        logger.info(f"Context: {len(TICKERS)} assets | Timeframe: {start_date} to {end_date}")
 
         try:
-            # ---------------- INGESTION ----------------
             ingest_all_assets(
                 tickers=TICKERS,
                 start_date=start_date,
@@ -63,7 +55,6 @@ def run_pipeline() -> None:
             )
             logger.info("Bronze layer ingestion completed")
 
-            # ---------------- SILVER ----------------
             bronze_files = sorted(BRONZE_DIR.glob(f"*_{run_id}.csv"))
 
             if not bronze_files:
@@ -86,45 +77,30 @@ def run_pipeline() -> None:
                         logger.info(f"Processed {bronze_file.name}")
 
                     except Exception as exc:
-                        logger.error(
-                            f"Failed processing {bronze_file.name}",
-                            exc_info=exc,
-                        )
+                        logger.error(f"Failed processing {bronze_file.name}", exc_info=exc)
                         sentry_sdk.capture_exception(exc)
 
-                # ---------------- GOLD ----------------
                 if new_data_processed:
-                    run_gold_layer(
-                        silver_dir=SILVER_DIR,
-                        gold_dir=GOLD_DIR,
-                        run_id=run_id,
-                    )
+                    run_gold_layer(silver_dir=SILVER_DIR, gold_dir=GOLD_DIR, run_id=run_id)
                     logger.info("Gold layer analytics completed")
                 else:
                     logger.info("No new data processed — skipping Gold layer")
 
-            # -------- SUCCESS MESSAGE --------
             logger.info("Pipeline execution finished successfully")
-            sentry_sdk.capture_message(
-                f"Pipeline run {run_id} completed successfully",
-                level="info",
-            )
+            sentry_sdk.capture_message(f"Pipeline run {run_id} completed successfully", level="info")
 
         except Exception as exc:
             logger.critical("Pipeline execution failed", exc_info=exc)
             sentry_sdk.capture_exception(exc)
-            sentry_sdk.capture_message(
-                f"Pipeline run {run_id} failed",
-                level="error",
-            )
+            sentry_sdk.capture_message(f"Pipeline run {run_id} failed", level="error")
             raise
 
 
 if __name__ == "__main__":
     try:
         run_pipeline()
-    except Exception as e:                    
-        sentry_sdk.capture_exception(e)      
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
         raise
     finally:
-        sentry_sdk.flush(timeout=5)          
+        sentry_sdk.flush(timeout=5)
