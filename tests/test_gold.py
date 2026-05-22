@@ -5,7 +5,6 @@ import pytest
 import src.gold_metrics as gold
 
 
-# Provides a representative sample of Silver-layer data for testing
 @pytest.fixture
 def fake_silver_df():
     return pd.DataFrame({
@@ -16,7 +15,6 @@ def fake_silver_df():
     })
 
 
-# Sets up isolated temporary directories and mocks the data loader
 @pytest.fixture
 def isolated_gold_env(tmp_path, monkeypatch, fake_silver_df):
     silver_dir = tmp_path / "silver"
@@ -24,18 +22,16 @@ def isolated_gold_env(tmp_path, monkeypatch, fake_silver_df):
     silver_dir.mkdir()
     gold_dir.mkdir()
 
-    # IMPORTANT FIX:
-    # Accept *args, **kwargs to support optional logger parameter
+    # *args/**kwargs needed to support the optional logger parameter
     monkeypatch.setattr(
         gold,
         "load_all_silver_data",
-        lambda *args, **kwargs: fake_silver_df
+        lambda *args, **kwargs: fake_silver_df,
     )
 
     return silver_dir, gold_dir
 
 
-# Verifies that the Gold layer correctly generates both CSV and JSON artifacts
 def test_gold_creates_output_files(isolated_gold_env):
     silver_dir, gold_dir = isolated_gold_env
 
@@ -45,7 +41,6 @@ def test_gold_creates_output_files(isolated_gold_env):
     assert (gold_dir / "freshness.json").exists()
 
 
-# Ensures the calculated metrics (averages, latest price) are accurate
 def test_gold_aggregates_schema_and_values(isolated_gold_env):
     silver_dir, gold_dir = isolated_gold_env
 
@@ -61,16 +56,13 @@ def test_gold_aggregates_schema_and_values(isolated_gold_env):
         "avg_30d_close",
         "latest_volume",
     }
-
     assert expected_columns.issubset(df.columns)
 
     aapl = df[df["symbol"] == "AAPL"].iloc[0]
-
     assert aapl["latest_close"] == 150.0
     assert aapl["avg_7d_close"] == 147.5
 
 
-# Validates the freshness JSON structure and status logic
 def test_gold_freshness_contract(isolated_gold_env):
     silver_dir, gold_dir = isolated_gold_env
 
@@ -81,16 +73,13 @@ def test_gold_freshness_contract(isolated_gold_env):
 
     assert set(data.keys()) == {"AAPL", "BTC-USD"}
 
-    for symbol in data:
-        payload = data[symbol]
-
+    for symbol, payload in data.items():
         assert "last_date" in payload
         assert "days_stale" in payload
         assert "status" in payload
-        assert payload["status"] in ["FRESH", "STALE"]
+        assert payload["status"] in ("FRESH", "STALE")
 
 
-# Added test for Empty Silver Layer exception
 def test_gold_raises_error_on_missing_files(tmp_path):
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
