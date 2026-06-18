@@ -21,3 +21,6 @@ pytest-mock>=3.12,<4.0
 
 # Monitoring
 sentry-sdk
+
+# Orchestration
+apache-airflow>=3.0.2
