@@ -28,7 +28,6 @@ def get_engine():
         logger.error("Missing DATABASE_URL in environment")
         raise RuntimeError("Database configuration incomplete")
 
-    # Heroku/Neon use postgres:// but SQLAlchemy requires postgresql://
     if conn_str.startswith("postgres://"):
         conn_str = conn_str.replace("postgres://", "postgresql://", 1)
 
