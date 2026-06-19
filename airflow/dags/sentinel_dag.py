@@ -10,14 +10,10 @@ with DAG(
     is_paused_upon_creation=True,
 ) as dag:
 
-    run_tests = BashOperator(
-        task_id='tests',
-        bash_command='cd /opt/project && python -m pytest -v tests/',
-    )
-
+    # The single, focused task to execute your data engineering logic
     run_pipeline = BashOperator(
         task_id='src_pipeline',
-        bash_command='cd /opt/project && python -m src.pipeline',
+        bash_command="cd /opt/project && python -m src.pipeline"
     )
 
-    run_tests >> run_pipeline
+    run_pipeline

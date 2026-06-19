@@ -1,19 +1,23 @@
-.PHONY: help install run test clean docker_build docker_test docker_run docker_clean docker_all airflow_up airflow_down
+.PHONY: help install run test clean docker_build docker_test docker_run docker_clean docker_all
+
+include airflow.mk
 
 help:
 	@echo "Available commands:"
 	@echo "  make install        Install Python dependencies"
-	@echo "  make run            Run the Sentinel Pipeline"
-	@echo "  make test           Run all tests"
-	@echo "  make docker_all     Build, test, and run inside Docker"
-	@echo "  make docker_clean   Remove Docker containers, volumes, and orphans"
+	@echo "  make run            Run the Sentinel Pipeline locally"
+	@echo "  make test           Run all tests via pytest"
 	@echo "  make clean          Remove local data artifacts"
-	@echo "  make airflow_up     start airflow from docker"
-	@echo "  make airflow_down   stop airflow from docker"
+	@echo ""
+	@echo "  Airflow Core Shortcuts (via airflow.mk):"
+	@echo "    make up             Spin up Airflow environment"
+	@echo "    make down           Stop Airflow environment"
+	@echo "    make init-fresh     Completely reset and rebuild Airflow"
+	@echo "    make trigger        Force trigger the sentinel_pipeline DAG"
+	@echo "    make status         Check container statuses"
 
 
-# local execution commands--
-
+# Local execution commands
 install: requirements.txt
 	python -m pip install --upgrade pip
 	pip install -r requirements.txt
@@ -30,7 +34,7 @@ clean:
 	rm -rf data/gold/*
 
 
-# Docker execution commands--
+# App-specific Docker execution commands
 
 docker_build:
 	docker compose build
@@ -44,18 +48,6 @@ docker_run: docker_build
 docker_clean:
 	rm -rf data/bronze/*
 	rm -rf data/silver/*
-#	rm -rf data/gold/*
 	docker compose down --volumes --remove-orphans
 
-
 docker_all: docker_test docker_run docker_clean
-
-
-# Airflow execution commands--
-
-airflow_up:
-	docker compose --env-file .env.airflow -f airflow-services.yaml up -d
-
-airflow_down:
-	docker compose --env-file .env.airflow -f airflow-services.yaml down
-
