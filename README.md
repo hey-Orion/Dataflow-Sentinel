@@ -9,6 +9,7 @@ Production-Inspired DataOps Pipeline with Freshness Monitoring & CI Alerting
 **DATAFLOW-SENTINEL** > A production-inspired DataOps pipeline that ingests financial market data, validates schema integrity, promotes datasets through a Medallion Architecture, and enforces freshness monitoring via CI-based alerting.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
+![Airflow](https://img.shields.io/badge/Orchestrator-Apache_Airflow-orange)
 ![CI](https://img.shields.io/badge/CI-GitHub_Actions-success)
 ![Docker](https://img.shields.io/badge/Containerized-Docker-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -39,6 +40,7 @@ This project demonstrates:
 * Structured logging for traceability
 * CI-driven monitoring and alerting
 * Environment parity (Local ↔ Docker ↔ CI)
+* **Production-grade orchestration with Apache Airflow and Github Actions**
 
 It simulates a production-grade DataOps project in a compact, readable system.
 
@@ -73,6 +75,7 @@ Execution is orchestrated via `src/pipeline.py` and runs identically across:
 * Local environment
 * Docker container
 * GitHub Actions (scheduled CI runs)
+* Apache Airflow, which executes the pipeline as a Directed Acyclic Graph (DAG).
 
 📄 Detailed architecture: `docs/ARCHITECTURE.md`
 
@@ -87,6 +90,7 @@ The system is intentionally designed to fail loudly.
 * Structured logs for debugging and auditability
 * Freshness tracking via `data/gold/freshness.json`
 * CI alerts on failure
+* Retries and task-level failure alerts
 
 No silent degradation.
 
@@ -137,6 +141,7 @@ The structure enforces strict separation of concerns and stage isolation.
    * Writes `freshness.json`
    * Triggers CI-based email alerts when needed
 
+
 ### Gold Layer Output Example (freshness Artifact)
 
 ![Gold Files](docs/images/gold-freshness.png)
@@ -148,7 +153,7 @@ The structure enforces strict separation of concerns and stage isolation.
 ### Installation
 
 ```bash
-install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Local
@@ -158,6 +163,31 @@ make run
 ```
 
 Uses environment variables defined in `.env`.
+
+---
+
+### Airflow (Orchestration)
+
+This is the recommended way to run the pipeline in a production-like environment.
+
+1. Start airflow with docker
+   ```bash
+   make up
+   ```
+
+2. Access the UI: Open http://localhost:8080 and log in.
+
+3. Trigger the DAG:
+   · Via UI: Click the play button next to sentinel_dag.
+   · Via CLI:
+     ```bash
+     make trigger
+     ```
+4. Monitor execution: Track task statuses, logs, and retries directly in the UI.
+
+![airflow dashboard](docs/images/airflow-ui-dag-list.png)
+
+The DAG appears in the Airflow UI, ready for manual or scheduled triggers.
 
 ---
 
@@ -184,9 +214,9 @@ Runs the pipeline in a containerized environment with local PostgreSQL.
 
 ---
 
-## Configuration
+### Configuration
 
-### Assets
+**Assets**
 
 Defined in:
 
@@ -194,36 +224,44 @@ Defined in:
 config/assets.yaml
 ```
 
-This decouples runtime symbols from pipeline logic.
+This decouples runtime symbols (e.g., ticker symbols, file paths) from pipeline logic.
 
 ---
 
 ### Environment Variables
 
-Managed via:
+Multiple environment files are provided for different contexts:
 
-* `.env`
-* `.env.local`
-* GitHub Secrets (CI)
+# File Purpose
+* .env Base defaults (used in local runs)
+* .env.airflow Overrides for Airflow execution
+* .env.docker Overrides for Docker‑compose runs
 
-Secrets.
+Sensitive values (like SENTRY_DSN) should never be committed; instead, use GitHub Secrets.
 
 ---
 
-## Testing
+### Testing
 
 * Built with **pytest**
 * Tests mirror the `src/` structure
 * Covers ingestion, validation, storage and metrics
 * Enforced in CI to prevent regressions
 
+Run tests locally:
+
+```bash
+pytest tests/
+```
+
 ---
 
-## Observability
+### Observability
 
 * Structured logs in `logs/`
 * Data freshness tracking in `data/gold/freshness.json`
 * CI email alerts on failure
+* Airflow UI for real‑time task monitoring and runs
 
 Operational response guide:
 
@@ -281,15 +319,20 @@ Sentry is optional in local development and activates only when `SENTRY_DSN` is 
 * SQLAlchemy
 * python-dotenv
 
+**Orchestration**
+
+* Apache Airflow
+* GitHub Actions
+
 **Infrastructure**
 
 * PostgreSQL (Local & Neon)
 * Docker & Docker Compose
-* GitHub Actions
 * pytest
 * Sentry
 * Makefile
 * Git & GitHub
+* yaml 
 
 ---
 
