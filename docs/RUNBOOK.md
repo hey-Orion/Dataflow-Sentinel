@@ -10,9 +10,10 @@ It functions as a lightweight **runbook** for maintainers and reflects productio
 
 Pipeline health signals are surfaced through multiple monitoring layers:
 
-* GitHub Actions (CI execution status)
-* Email notifications (success / failure)
-* Sentry (runtime exception tracking)
+* **GitHub Actions** – CI execution status and logs
+* **Email notifications** – success / failure alerts
+* **Sentry** – runtime exception tracking with full stack traces
+* **Apache Airflow UI** – real‑time DAG status, task logs, and historical runs
 
 Email alerts are triggered for:
 
@@ -23,28 +24,35 @@ Sentry captures:
 
 * Unhandled runtime exceptions
 * Full stack traces
-* Environment context (local / Docker)
+* Environment context (local / Docker / CI)
+
+Airflow provides:
+
+* Visual DAG graph with task dependencies
+* Individual task logs and stdout/stderr
+* Retry attempts and failure reasons
+* Scheduler health and DAG run timelines
 
 ### Design Principles
 
-* Alerts are intentionally minimal and mobile-friendly
-* Detailed logs and artifacts are available within GitHub Actions
+* Alerts are intentionally minimal and mobile‑friendly
+* Detailed logs and artifacts are available within GitHub Actions and Airflow UI
 * Runtime errors are persisted externally via Sentry
 * Failures must always be actionable
 * Silent failures are unacceptable
+
 ---
 
 ## 2. 🚨 Alert Conditions
 
-The pipeline owner or on-call maintainer must investigate immediately if any of the following occur:
+The pipeline owner or on‑call maintainer must investigate immediately if any of the following occur:
 
 ### 2.1 Execution Failure
 
 * GitHub Actions workflow fails
 * Unhandled exception during pipeline run
-* Non-zero exit status
-
----
+* Non‑zero exit status
+* Airflow DAG run ends with **failed** state
 
 ### 2.2 Data Freshness Violation
 
@@ -61,8 +69,6 @@ This indicates:
 * Validation failure preventing promotion
 * Pipeline regression
 
----
-
 ### 2.3 Missing Layer Updates
 
 If either condition occurs:
@@ -71,6 +77,12 @@ If either condition occurs:
 * `data/gold/aggregates.csv` missing, empty, or unchanged
 
 This signals possible ingestion failure or blocked promotion.
+
+### 2.4 Airflow‑Specific Alerts
+
+* Scheduler not running or unhealthy
+* DAG not triggered at scheduled time
+* Tasks stuck in **running** state for extended period
 
 ---
 
@@ -83,16 +95,41 @@ Follow the steps in order.
 ### Step 1 — Inspect GitHub Actions
 
 * Open the failed workflow run
-* Review step-level logs
+* Review step‑level logs
 * Identify the failing module (Ingestion, Validation, Storage, or Metrics)
 
-![GitHub Actions Failure Example](images/github-ci.png)
+![GitHub Actions Failure Example](images\github-ci.png)
 
 Do not rerun blindly without reviewing logs.
 
 ---
 
-### Step 1A — Inspect Sentry (Runtime Errors)
+### Step 1A — Inspect Airflow UI
+
+If the pipeline is orchestrated via Airflow:
+
+1. Open the Airflow UI (typically `http://localhost:8080` when running locally, or the deployed URL).
+2. Go to the **DAGs** list and find `sentinel_dag`.
+3. Check the **last run** status (success/failed/running).
+4. Click into the DAG run and inspect each task:
+
+   * Hover over task circles to see statuses
+   * Click on a failed task → **Log** tab to view detailed output
+   * Review the **Graph** view to confirm dependency flow
+
+![Airflow DAG Graph](images\air.png)
+
+5. Verify the **scheduler** is healthy (check the **Scheduler** tab or system logs).
+
+If the DAG is not triggered at the expected time:
+
+* Confirm the schedule interval is correctly set.
+* Check the `start_date` and `catchup` settings.
+* Ensure the scheduler process is running.
+
+---
+
+### Step 1B — Inspect Sentry (Runtime Errors)
 
 ![Sentry Issue Dashboard](images/sentry-dashboard.png)
 
@@ -114,7 +151,7 @@ Sentry provides:
 If no Sentry event exists:
 
 * Confirm `SENTRY_DSN` is configured
-* Verify environment variable injection in CI
+* Verify environment variable injection in CI or Airflow environment
 * Ensure monitoring initialization executes before pipeline logic
 
 ---
@@ -130,7 +167,7 @@ make docker_test
 
 If the issue reproduces locally, the root cause is deterministic.
 
-If not, investigate environment-specific differences.
+If not, investigate environment‑specific differences (e.g., Airflow vs. direct execution).
 
 ---
 
@@ -140,6 +177,8 @@ Review structured logs under:
 
 * `logs/`
 * `logs/pipeline.json`
+
+Additionally, Airflow task logs are stored in the Airflow home (usually `airflow/logs/`) and viewable via the UI.
 
 Focus on:
 
@@ -165,7 +204,7 @@ If the external source is unavailable, document the incident and monitor next sc
 
 Confirm:
 
-* PostgreSQL service is running
+* PostgreSQL service is running (neon)
 * Credentials are valid
 * Connection pool is functional
 * No insertion conflicts or schema drift
@@ -173,8 +212,9 @@ Confirm:
 Environment mapping:
 
 * Local → Neon PostgreSQL
-* Docker → Local PostgreSQL container
+* Docker → Local PostgreSQL container (or specified in compose)
 * GitHub Actions → Neon PostgreSQL
+* Airflow → Neon PostgreSQL
 
 ---
 
@@ -188,7 +228,7 @@ Recovery actions depend on failure classification.
 
 If ingestion fails:
 
-* Manually re-run via GitHub Actions
+* Manually re‑run via GitHub Actions (workflow_dispatch)
   OR
 * Execute locally:
 
@@ -196,6 +236,14 @@ If ingestion fails:
 make run
 make docker_run
 ```
+
+* In Airflow, trigger the DAG again:
+
+```bash
+make trigger
+```
+
+or via UI (click the ▶ button).
 
 Verify Bronze output is regenerated.
 
@@ -205,7 +253,7 @@ Verify Bronze output is regenerated.
 
 If validation blocks promotion:
 
-* Inspect malformed Bronze-layer CSV files
+* Inspect malformed Bronze‑layer CSV files
 * Check for upstream schema changes
 * Confirm required fields remain present
 * Review Pydantic schema enforcement rules
@@ -239,6 +287,31 @@ make docker_all
 
 Rebuild environment to eliminate stale state.
 
+For Airflow‑related container issues:
+
+```bash
+make down
+make up
+```
+
+to restart the entire Airflow stack.
+
+---
+
+### 4.5 Airflow Task Failures
+
+If a task fails (e.g., `ingest_task`):
+
+1. Inspect the task log via Airflow UI.
+2. Fix the underlying issue (code, configuration, external service).
+3. Clear the failed task and its downstream tasks (Airflow UI → select task → **Clear**).
+4. Rerun the DAG – Airflow will re‑execute cleared tasks.
+
+If tasks are stuck in **running**:
+
+* Check scheduler and worker logs.
+* Restart the scheduler (`make down` / `make up`).
+
 ---
 
 ## 5. ✅ Healthy Run Signals
@@ -260,12 +333,14 @@ Additionally:
 * No validation errors
 * No skipped assets
 * GitHub Actions status: **Success**
+* Airflow DAG run status: **Success** (all tasks marked green)
+* No unhandled exceptions in Sentry
 
 ---
 
 ## 6. Operational Philosophy
 
-Dataflow Sentinel is treated as a **production-inspired data pipeline**.
+Dataflow Sentinel is treated as a **production‑inspired data pipeline**.
 
 Principles:
 
@@ -273,8 +348,8 @@ Principles:
 * Never silently ignore corruption
 * Validate before promotion
 * Prefer reproducibility over convenience
-* Re-runs must be safe (idempotency guaranteed)
-* Runtime errors must be observable (CI + Sentry)
+* Re‑runs must be safe (idempotency guaranteed)
+* Runtime errors must be observable (CI + Sentry + Airflow UI)
 
 Failures are expected.
 

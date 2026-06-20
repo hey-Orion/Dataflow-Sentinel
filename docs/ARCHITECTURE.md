@@ -2,26 +2,28 @@
 
 ## 1. Overview
 
-**Dataflow Sentinel** is a lightweight, production-oriented **data pipeline and monitoring system** designed to ingest raw data, validate it, transform it through layered storage (Bronze → Silver → Gold), and continuously track **data freshness and data quality**.
+**Dataflow Sentinel** is a production‑oriented **data pipeline and monitoring system** that ingests raw data, validates it, transforms it through layered storage (Bronze → Silver → Gold), and continuously tracks **data freshness and data quality**.
 
-The project mirrors a real-world **DataOps / Analytics Engineering** system and emphasizes:
+The project mirrors a real‑world **DataOps / Data Engineering** system and emphasizes:
 
 * Deterministic execution
-* Idempotent re-runs
+* Idempotent re‑runs
 * Clear separation of concerns
-* Validation-first data promotion
+* Validation‑first data promotion
 * Containerized reproducibility
-* CI-driven automation
+* CI‑driven automation with Github Actions
+* **Production‑grade orchestration with Apache Airflow**
 
-The system is intentionally compact, but architected using production principles.
+The system is intentionally compact but architected using production principles.
 
 ---
 
 ## 2. High-Level Architecture
 
-![System Architecture](images/pipeline-architecture.png)
+![System Architecture](images\arch.png)
 
 ```
+
 External Data Source
         │
         ▼
@@ -53,18 +55,14 @@ External Data Source
  └────────────┘
 ```
 
-The pipeline is orchestrated through **`src/pipeline.py`**, which:
-
-* Enforces deterministic execution order
-* Coordinates logging
-* Propagates errors explicitly
-* Ensures safe re-runs (idempotency)
+The pipeline is **orchestrated by Apache Airflow and deployed on Github Actions**, which runs the tasks in a (DAG) and scheduled runs on actions. Each task encapsulates a specific stage of the pipeline. The underlying business logic resides in the `src/` modules.
 
 The same orchestration logic is used across:
 
-* Local execution
-* Docker containers
-* GitHub Actions CI
+* Local development (via `make run` – runs `pipeline.py` directly)
+* Airflow (via `make up` – full stack)
+* Docker (pipeline‑only container)
+* GitHub Actions (scheduled CI runs)
 
 This guarantees **behavioral parity across environments**.
 
@@ -72,7 +70,7 @@ This guarantees **behavioral parity across environments**.
 
 ## 3. Data Layers (Medallion Architecture)
 
-![Medallion Architecture](images/medallion-architecture.webp)
+![Medallion Architecture](images\Medallion_architecture_data.jpg)
 
 The pipeline follows the **Bronze → Silver → Gold** medallion pattern to ensure reliability and traceability.
 
@@ -92,7 +90,7 @@ The pipeline follows the **Bronze → Silver → Gold** medallion pattern to ens
 
 ### Gold Layer (`data/gold/`)
 
-* Aggregated, analytics-ready outputs
+* Aggregated, analytics‑ready outputs
 * Derived from validated Silver datasets
 * Example artifacts:
 
@@ -108,9 +106,9 @@ This layered model:
 
 ---
 
-## 4. Core Modules
+## 4. Orchestration (Apache Airflow / Github Actions)
 
-### 4.1 Pipeline Orchestrator (`src/pipeline.py`)
+### Pipeline Orchestrator (`src/pipeline.py`)
 
 * Single entry point of the system
 
@@ -121,82 +119,109 @@ This layered model:
   3. Storage (Bronze → Silver → Gold)
   4. Metrics generation
 
-* Central coordination layer
+The Actions/DAG is scheduled daily (or can be manually triggered) and includes:
 
-* Guarantees idempotent re-execution
+* Retry logic (configurable)
+* Task‑level logging and error handling
+* Clear dependency management
+* Integration with the Airflow UI for monitoring
+
+### Airflow Environment
+
+Configuration is managed via:
+
+* `.env.airflow` – environment overrides for Airflow services
+* `airflow-services.yaml` – service definitions
+* `Dockerfile.airflow` – custom Airflow image with dependencies
+
+### Makefile Helpers
+
+* `make up` – starts the full Airflow stack (webserver, scheduler, PostgreSQL)
+* `make trigger` – triggers the DAG manually via CLI
+* `make down` – stops the stack
+* `make logs` – views container logs
+
+### GitHub Actions automates the pipeline without manual intervention:
+
+* **Scheduled runs** – daily execution
+* **Manual dispatch** – on‑demand trigger
+* **Pre‑execution tests** – runs pytest before the pipeline
+* **Alerts** – email notifications on success or failure
+
+Workflows are defined in `.github/workflows/`:
+- `sentinel-pipeline.yml` – main pipeline execution
+- `pipeline-alerts.yml` – monitoring and alerting
 
 ---
 
-### 4.2 Ingestion (`src/ingestion.py`)
+## 5. Core Modules
 
-* Fetches or simulates external data sources
-* Writes exclusively to the Bronze layer
-* Fully isolated from validation and transformation logic
-* Designed for easy replacement with real APIs or streaming systems
+### 5.1 Pipeline Orchestrator (`src/pipeline.py`)
 
----
+* **Legacy entry point** – originally the main runner; now used as a library for direct local execution (`make run`).
+* Encapsulates the full pipeline flow (ingestion → validation → storage → metrics).
+* Guarantees idempotent re‑execution when run standalone.
 
-### 4.3 Validation (`src/validation.py`)
+### 5.2 Ingestion (`src/ingestion.py`)
 
-* Gatekeeper between Bronze and Silver
-* Enforces data quality before promotion
+* Fetches or simulates external data sources (Yahoo Finance).
+* Writes exclusively to the Bronze layer.
+* Fully isolated from validation and transformation logic.
+* Designed for easy replacement with real APIs or streaming systems.
+
+### 5.3 Validation (`src/validation.py`)
+
+* Gatekeeper between Bronze and Silver.
+* Enforces data quality before promotion.
 * Includes:
 
   * Required field validation
   * Data type enforcement
   * Schema validation via **Pydantic models**
-  * Non-empty dataset checks
+  * Non‑empty dataset checks
 
 Invalid data is rejected early to prevent downstream corruption.
 
----
+### 5.4 Storage (`src/storage.py`)
 
-### 4.4 Storage (`src/storage.py`)
-
-* Centralized abstraction for all filesystem operations
-* Encapsulates read/write logic
-* Prevents business logic from coupling to storage mechanics
-* Improves testability and future extensibility
+* Centralized abstraction for all filesystem operations.
+* Encapsulates read/write logic.
+* Prevents business logic from coupling to storage mechanics.
+* Improves testability and future extensibility.
 
 Future targets could include:
 
 * Object storage (S3)
 * Data warehouses
 
----
+### 5.5 Gold Metrics (`src/gold/metrics.py`)
 
-### 4.5 Gold Metrics (`src/gold_metrics.py`)
-
-* Computes analytics-ready aggregates
-* Generates data freshness metrics
-* Produces structured Gold outputs
+* Computes analytics‑ready aggregates.
+* Generates data freshness metrics.
+* Produces structured Gold outputs.
 * Responsible for monitoring signals such as:
 
   * Dataset staleness
   * Last available data timestamps
 
----
+### 5.6 Logging (`src/logger.py`)
 
-### 4.6 Logging (`src/logger.py`)
+* Centralized logging configuration.
+* Structured, consistent logs across all modules.
+* Logs persisted under `logs/`.
+* Designed for observability and post‑failure analysis.
 
-* Centralized logging configuration
-* Structured, consistent logs across all modules
-* Logs persisted under `logs/`
-* Designed for observability and post-failure analysis
+### 5.7 Error Monitoring (`src/monitoring.py`)
 
----
-
-### 4.7 Error Monitoring (`src/monitoring.py`)
-
-* Integrates **Sentry** for real-time runtime error tracking
-* Initialized at application startup inside `pipeline.py`
-* Isolated from business logic to preserve clean architecture
+* Integrates **Sentry** for real‑time runtime error tracking.
+* Initialized at application startup inside `pipeline.py` or via the DAG.
+* Isolated from business logic to preserve clean architecture.
 * Automatically captures:
 
   * Unhandled exceptions
   * Stack traces
   * Execution context
-  * Environment (local / Docker)
+  * Environment (local / Docker / CI)
 
 Monitoring activation is controlled via environment variables:
 
@@ -210,40 +235,42 @@ This layer enhances operational visibility beyond CI logs by providing persisten
 
 ---
 
-## 5. Configuration Management
+## 6. Configuration Management
 
 ### Assets Configuration (`config/assets.yaml`)
 
-* Defines symbols, assets, and runtime parameters
-* Decouples configuration from business logic
-* Enables environment-agnostic execution
+* Defines symbols, assets, and runtime parameters.
+* Decouples configuration from business logic.
+* Enables environment‑agnostic execution.
 
 ### Environment Variables
 
-Managed via:
+Multiple `.env` files are used for different contexts:
 
-* `.env`
-* `.env.local`
-* Template examples for onboarding
+| File | Purpose |
+|------|---------|
+| `.env` | Base defaults (used in local runs) |
+| `.env.airflow` | Overrides for Airflow execution |
+| `.env.docker` | Overrides for Docker‑compose runs |
 
-Secrets and environment-specific values are never hard-coded.
-
----
-
-## 6. Idempotency & Re-Run Safety
-
-The pipeline is designed to be safely re-executed without corrupting state.
-
-* Layered overwrite strategy prevents duplication
-* Deterministic transformations ensure consistent outputs
-* Re-running the pipeline produces stable results
-* Gold metrics always reflect the latest validated Silver state
-
-This makes the system suitable for scheduled CI runs and production-like environments.
+Secrets and environment‑specific values are never hard‑coded; they are injected at runtime.
 
 ---
 
-## 7. Testing Strategy
+## 7. Idempotency & Re-Run Safety
+
+The pipeline is designed to be safely re‑executed without corrupting state.
+
+* Layered overwrite strategy prevents duplication.
+* Deterministic transformations ensure consistent outputs.
+* Re‑running the pipeline produces stable results.
+* Gold metrics always reflect the latest validated Silver state.
+
+This makes the system suitable for scheduled CI runs and production‑like environments.
+
+---
+
+## 8. Testing Strategy
 
 Tests reside under `tests/` and mirror the source structure.
 
@@ -263,65 +290,58 @@ Testing ensures architectural guarantees remain intact as the project evolves.
 
 ---
 
-## 8. Automation & CI/CD
-
-### Docker
-
-* `Dockerfile` defines a reproducible runtime
-* `docker-compose.yml` runs the pipeline as an isolated service
-* Ensures consistency across machines and environments
+## 9. Automation & CI/CD
 
 ### Makefile
 
 Standardized developer interface for:
 
-* Running pipeline
-* Running tests
-* Managing containers
-* Managing cleanups
+* make install        Install Python dependencies"
+* make run            Run the Sentinel Pipeline locally"
+* make test           Run all tests via pytest"
+* make clean          Remove local data artifacts"
+* make all            Full docker run (in short)
+* make up             Spin up Airflow environment"
+* make down           Stop Airflow environment"
+* make trigger        Force trigger the sentinel_pipeline DAG"
+* make status         Check container statuses"
 
 Removes manual command repetition.
 
 ### GitHub Actions (`.github/workflows/`)
 
-#### `daily_run.yml`
+* `sentinel-pipeline.yml` – scheduled daily runs, manual dispatch, executes tests, then pipeline
+* `pipeline-alerts.yml` – sends email notifications on success/failure
 
-* Scheduled pipeline execution
-* Simulates production recurring workloads
-* Verifies freshness and integrity
-
-#### `email-notify.yml`
-
-* Sends notifications on success or failure
-* Surfaces operational health signals in CI
+CI runs the pipeline using the same Docker image as local development, ensuring environment parity.
 
 ---
 
-## 9. Observability & Monitoring
+## 10. Observability & Monitoring
 
-* Data freshness tracked via `freshness.json`
-* Structured logs for traceability
-* CI notifications for operational awareness
-* Sentry-based runtime error monitoring
-* Failure propagation prevents silent corruption
+* Data freshness tracked via `freshness.json` in Gold layer.
+* Structured logs in `logs/` for traceability.
+* CI email alerts on workflow failure.
+* **Airflow UI** for real‑time task monitoring, logs.
+* Sentry for persistent external error tracking.
 
-The system reflects core **data reliability engineering** principles by combining logging, alerting, and external error tracking.
+The system combines these layers to provide comprehensive visibility.
 
 ---
 
-## 10. Design Principles
+## 11. Design Principles
 
 * Deterministic execution
-* Idempotent re-runs
-* Validation-first data promotion
+* Idempotent re‑runs
+* Validation‑first data promotion
 * Clear separation of concerns
-* Configuration over hard-coding
+* Configuration over hard‑coding
 * Reproducible environments
-* Production-inspired structure
+* Production‑inspired structure
 
 ---
 
-## 11. Future Extensions
+## 12. Future Extensions
 
 * Replace simulated ingestion with real external APIs
 * Persist Gold outputs to PostgreSQL
@@ -331,9 +351,9 @@ The system reflects core **data reliability engineering** principles by combinin
 
 ---
 
-## 12. Summary
+## 13. Summary
 
-Dataflow Sentinel demonstrates how a compact yet production-inspired data pipeline can be engineered using Python, Docker, and CI automation.
+Dataflow Sentinel demonstrates how a compact yet production‑inspired data pipeline can be engineered using Python, Airflow, Docker, and CI automation.
 
 The system prioritizes:
 
@@ -343,4 +363,4 @@ The system prioritizes:
 * Reproducibility
 * Operational realism
 
-It is intentionally simple in scope but structured to reflect real-world data engineering practices.
+It is intentionally simple in scope but structured to reflect real‑world data engineering practices.

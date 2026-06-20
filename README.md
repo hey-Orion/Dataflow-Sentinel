@@ -50,11 +50,13 @@ It simulates a production-grade DataOps project in a compact, readable system.
 
 ### System Architecture
 
-![Pipeline Architecture](docs/images/pipeline-architecture.png)
+![Pipeline Architecture](docs\images\arch.png)
+---
 
 ### Medallion Data Model
 
-![Medallion Architecture](docs/images/medallion-architecture.webp)
+![Medallion Architecture](docs\images\Medallion_architecture_data.jpg)
+--
 
 
 The pipeline follows a **Medallion Architecture**:
@@ -75,7 +77,7 @@ Execution is orchestrated via `src/pipeline.py` and runs identically across:
 * Local environment
 * Docker container
 * GitHub Actions (scheduled CI runs)
-* Apache Airflow, which executes the pipeline as a Directed Acyclic Graph (DAG).
+* Apache Airflow, which executes the pipeline as a (DAG).
 
 📄 Detailed architecture: `docs/ARCHITECTURE.md`
 
@@ -98,16 +100,17 @@ No silent degradation.
 
 ## Project Structure
 
-![Project Structure](docs/images/project-structure.png)
+![Project Structure](docs\images\project-structure-1.png)
 
 
 ```
-src/        Core pipeline logic (ingestion, validation, storage, metrics)
+src/        Core pipeline logic ingestion, validation, storage, Metrics
 data/       Bronze / Silver / Gold
 tests/      Pytest-based unit & integration tests
 config/     Runtime / assets configuration (assets.yaml)
 logs/       Structured execution logs
 docs/       Architecture & operational runbook
+airflow/    Orchestration logic and Dag file
 ```
 
 The structure enforces strict separation of concerns and stage isolation.
@@ -150,67 +153,195 @@ The structure enforces strict separation of concerns and stage isolation.
 
 ## How to Run
 
-### Installation
+The pipeline can be executed in **four different ways**, depending on your needs:
 
-```bash
-pip install -r requirements.txt
-```
-
-### Local
-
-```bash
-make run
-```
-
-Uses environment variables defined in `.env`.
+| Mode | Command(s) | Database | Dependencies |
+|------|------------|----------|--------------|
+| **Local** | `make test` + `make run` | Neon PostgreSQL | Python + requirements.txt |
+| **Docker** | `make docker_all` | Local PostgreSQL (container) | Docker only |
+| **CI (GitHub Actions)** | Manual trigger from Actions tab | Neon PostgreSQL | None (runs in cloud) |
+| **Airflow** | `make up`, `make trigger`, etc. | Neon PostgreSQL (or custom) | Python + Docker |
 
 ---
 
-### Airflow (Orchestration)
+### 1. Local Run (Development)
 
-This is the recommended way to run the pipeline in a production-like environment.
+This is the standard way to develop and test the pipeline on your own machine.
 
-1. Start airflow with docker
+#### Prerequisites
+- Python 3.11 installed
+- Git (to clone the repository)
+
+#### Steps
+1. **Clone the repository** (if not already done):
+   ```bash
+   git clone <repository-url>
+   cd DATAFLOW-SENTINEL
+   ```
+
+2. **Set up a Python virtual environment** (optional but recommended):
+   - On Linux/macOS:
+     ```bash
+     python -m venv venv
+     source venv/bin/activate
+     ```
+   - On Windows:
+     ```bash
+     python -m venv venv
+     .\venv\Scripts\activate
+     ```
+
+3. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Configure environment** – copy `.env.example` to `.env` and fill in your credentials (especially `POSTGRES_*` for Neon). The local run connects to **Neon PostgreSQL** by default.
+
+5. **Run tests** (optional but recommended):
+   ```bash
+   make test
+   ```
+   This ensures all modules are working correctly.
+
+6. **Execute the pipeline**:
+   ```bash
+   make run
+   ```
+
+The pipeline will ingest data, validate, promote, and produce gold outputs. Logs are stored in `logs/`.
+
+![Local Run Terminal Output](docs/images/terminal.png)
+*Example terminal output after a successful local run.*
+
+---
+
+### 2. Docker Run (Containerized, No Installation)
+
+If you want to run the pipeline **without installing anything locally** (except Docker), use this method.
+
+#### Prerequisites
+- Docker and Docker Compose installed
+
+#### Steps
+1. **Build, run, test, and clean** – all in one command:
+   ```bash
+   make docker_all
+   ```
+
+   This internally executes (in order):
+   - `make docker_test` – runs tests inside the container
+   - `make docker_run` – executes the pipeline
+   - `make docker_clean` – removes temporary artifacts
+
+2. **Database**: This run uses a **local PostgreSQL container** (defined in `docker-compose.yaml`), so you don't need to set up external database credentials.
+
+No Python or dependencies are needed on your host machine – everything runs inside the container.
+
+![Docker Run Output](docs/images/docker-container.png)
+*Example Docker run logs showing the pipeline executing inside the container.*
+
+---
+
+### 3. CI (GitHub Actions)
+
+The pipeline is automatically scheduled to run daily, but you can also trigger it manually.
+
+#### Manual Trigger
+1. Go to the repository on GitHub.
+2. Click the **Actions** tab.
+3. Select the workflow (e.g., `sentinel-pipeline.yml`).
+4. Click **Run workflow** → select branch → **Run**.
+5. The workflow will:
+   - Run tests (`pytest`)
+   - Execute the full pipeline
+   - Produce artifacts (logs, freshness.json) which are **automatically deleted after a set retention period**
+
+#### Scheduled Runs
+- The pipeline runs every day at the configured time.
+- On success/failure, you receive email notifications (configured via GitHub Actions).
+
+**Database**: This run connects to **Neon PostgreSQL** (same as local), using secrets stored in GitHub.
+
+![GitHub Actions Run](docs/images/github-ci.png)
+*Example of a successful GitHub Actions workflow run with test and pipeline steps.*
+
+---
+
+### 4. Airflow (Production Orchestration)
+
+For full orchestration with Apache Airflow, use this method. It runs the pipeline as a DAG with retries, UI monitoring, and task-level logs.
+
+#### Prerequisites
+- Python 3.11 installed (for local Airflow client)
+- Docker and Docker Compose (to run the Airflow stack)
+
+#### Steps
+
+1. **Install local dependencies** (for Airflow CLI and environment management):
+   ```bash
+   pip install -r requirements.txt
+   ```
+   (This also installs the `apache-airflow` package if not already present.)
+
+2. **Set up Airflow** – copy the example environment file and adjust if needed:
+   ```bash
+   cp .env.airflow.example .env.airflow
+   ```
+   This file contains Airflow-specific overrides (database URL, DAG location, etc.).
+
+3. **Start the Airflow stack** (webserver, scheduler, PostgreSQL metadata DB):
    ```bash
    make up
    ```
+   This spins up containers defined in `docker-compose.yaml` (using `Dockerfile.airflow`).  
+   Wait a few seconds for services to become ready.
 
-2. Access the UI: Open http://localhost:8080 and log in.
+4. **Access the Airflow UI**:
+   Open your browser and go to [http://localhost:8080](http://localhost:8080).  
+   Log in using the credentials you set (see `.env.airflow` for defaults).
 
-3. Trigger the DAG:
-   · Via UI: Click the play button next to sentinel_dag.
-   · Via CLI:
+5. **Trigger the DAG**:
+   - **Via UI**: In the DAGs list, click the ▶ (play) button next to `sentinel_dag`.
+   - **Via CLI** (from your terminal):
      ```bash
      make trigger
      ```
-4. Monitor execution: Track task statuses, logs, and retries directly in the UI.
+     This runs `airflow dags trigger sentinel_dag` inside the scheduler container.
 
-![airflow dashboard](docs/images/airflow-ui-dag-list.png)
+6. **Monitor execution**:
+   - In the UI, click on the DAG run to see task statuses, logs, and the graph view.
+   - **Logs** are accessible per task – helpful for debugging.
+   - Use the following terminal commands for container health:
+     - `make status` – shows container status
+     - `make logs` – streams logs from all containers
 
-The DAG appears in the Airflow UI, ready for manual or scheduled triggers.
+7. **Stop the Airflow stack** when done:
+   ```bash
+   make down
+   ```
+
+**Database**: By default, Airflow uses the same **Neon PostgreSQL** as the local run (configured via environment). You can change it in `.env.airflow` if needed.
+
+![Airflow Dashboard](docs/images/flow.jpeg)
+*Airflow UI showing the sentinel_dag with task statuses and the graph view.*
 
 ---
 
-### Docker
+### Summary of Makefile Commands
 
-```bash
-make docker_run
-```
+| Command | Purpose |
+|---------|---------|
+| `make test` | Run tests locally |
+| `make run` | Execute pipeline locally |
+| `make docker_all` | Build, test, run, and clean in Docker |
+| `make up` | Start Airflow containers |
+| `make down` | Stop Airflow containers |
+| `make trigger` | Trigger the Airflow DAG |
+| `make status` | Check Airflow container status |
+| `make logs` | View Airflow container logs |
 
-![Docker Run](docs/images/docker-container.png)
-
-Runs the pipeline in a containerized environment with local PostgreSQL.
-
----
-
-### CI (GitHub Actions)
-
-* Scheduled daily runs
-* Manual workflow dispatch
-* Executes tests before pipeline
-* Sends email notifications on success or failure
-
-![GitHub CI](docs/images/github-ci.png)
+Choose the run mode that best suits your workflow. For most development, start with **local**; for CI‑like validation, use **Docker**; for production‑grade scheduling, use **Airflow**.
 
 ---
 
@@ -224,7 +355,7 @@ Defined in:
 config/assets.yaml
 ```
 
-This decouples runtime symbols (e.g., ticker symbols, file paths) from pipeline logic.
+This decouples runtime symbols (e.g., ticker symbols, file paths datetime) from pipeline logic.
 
 ---
 
@@ -237,7 +368,7 @@ Multiple environment files are provided for different contexts:
 * .env.airflow Overrides for Airflow execution
 * .env.docker Overrides for Docker‑compose runs
 
-Sensitive values (like SENTRY_DSN) should never be committed; instead, use GitHub Secrets.
+Sensitive values (like SENTRY_DSN) should never be committed; instead, use GitHub Secrets for CI runs.
 
 ---
 
@@ -245,7 +376,7 @@ Sensitive values (like SENTRY_DSN) should never be committed; instead, use GitHu
 
 * Built with **pytest**
 * Tests mirror the `src/` structure
-* Covers ingestion, validation, storage and metrics
+* Covers ingestion, validation, storage and gold_metrics
 * Enforced in CI to prevent regressions
 
 Run tests locally:
