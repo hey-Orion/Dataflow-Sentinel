@@ -50,12 +50,12 @@ It simulates a production-grade DataOps project in a compact, readable system.
 
 ### System Architecture
 
-![Pipeline Architecture](docs\images\arch.png)
+![Pipeline Architecture](docs/images/arch.png)
 ---
 
 ### Medallion Data Model
 
-![Medallion Architecture](docs\images\Medallion_architecture_data.jpg)
+![Medallion Architecture](docs/images/Medallion_architecture_data.jpg)
 --
 
 
@@ -100,7 +100,7 @@ No silent degradation.
 
 ## Project Structure
 
-![Project Structure](docs\images\project-structure-1.png)
+![Project Structure](docs/images/project-structure-1.png)
 
 
 ```
