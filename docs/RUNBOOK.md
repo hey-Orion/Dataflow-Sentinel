@@ -98,7 +98,7 @@ Follow the steps in order.
 * Review step‑level logs
 * Identify the failing module (Ingestion, Validation, Storage, or Metrics)
 
-![GitHub Actions Failure Example](images\github-ci.png)
+![GitHub Actions Failure Example](images/github-ci.png)
 
 Do not rerun blindly without reviewing logs.
 
@@ -117,7 +117,7 @@ If the pipeline is orchestrated via Airflow:
    * Click on a failed task → **Log** tab to view detailed output
    * Review the **Graph** view to confirm dependency flow
 
-![Airflow DAG Graph](images\air.png)
+![Airflow DAG Graph](images/air.png)
 
 5. Verify the **scheduler** is healthy (check the **Scheduler** tab or system logs).
 
