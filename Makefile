@@ -1,4 +1,4 @@
-.PHONY: help install run test clean docker_build docker_test docker_run docker_clean docker_all
+.PHONY: help install run test clean all docker_build docker_test docker_run docker_clean docker_all
 
 include airflow.mk
 
@@ -9,7 +9,7 @@ help:
 	@echo "  make test           Run all tests via pytest"
 	@echo "  make clean          Remove local data artifacts"
 	@echo ""
-	@echo "  Airflow Core Shortcuts (via airflow.mk):"
+	@echo "    Airflow Core Shortcuts (via airflow.mk):"
 	@echo "    make up             Spin up Airflow environment"
 	@echo "    make down           Stop Airflow environment"
 	@echo "    make init-fresh     Completely reset and rebuild Airflow"
@@ -31,7 +31,9 @@ run:
 clean:
 	rm -rf data/bronze/*
 	rm -rf data/silver/*
-	rm -rf data/gold/*
+#	rm -rf data/gold/*
+
+all: test run clean 
 
 
 # App-specific Docker execution commands
@@ -40,14 +42,15 @@ docker_build:
 	docker compose build
 
 docker_test: docker_build
-	docker compose run --rm pipeline python -m pytest -v tests/
+	docker compose run --rm dataflow-sentinel python -m pytest -v tests/
 
-docker_run: docker_build
-	docker compose run --rm pipeline
+docker_run:
+	docker compose run --rm dataflow-sentinel
 
 docker_clean:
 	rm -rf data/bronze/*
 	rm -rf data/silver/*
+#	rm -rf data/gold/*
 	docker compose down --volumes --remove-orphans
 
 docker_all: docker_test docker_run docker_clean
