@@ -249,9 +249,8 @@ Multiple `.env` files are used for different contexts:
 
 | File | Purpose |
 |------|---------|
-| `.env` | Base defaults (used in local runs) |
+| `.env` | Base defaults (used in local runs and Docker‑compose runs) |
 | `.env.airflow` | Overrides for Airflow execution |
-| `.env.docker` | Overrides for Docker‑compose runs |
 
 Secrets and environment‑specific values are never hard‑coded; they are injected at runtime.
 

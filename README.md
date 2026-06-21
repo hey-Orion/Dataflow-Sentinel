@@ -158,7 +158,7 @@ The pipeline can be executed in **four different ways**, depending on your needs
 | Mode | Command(s) | Database | Dependencies |
 |------|------------|----------|--------------|
 | **Local** | `make test` + `make run` | Neon PostgreSQL | Python + requirements.txt |
-| **Docker** | `make docker_all` | Local PostgreSQL (container) | Docker only |
+| **Docker** | `make docker_all` | Neon PostgreSQL (or custom container) | Docker only |
 | **CI (GitHub Actions)** | Manual trigger from Actions tab | Neon PostgreSQL | None (runs in cloud) |
 | **Airflow** | `make up`, `make trigger`, etc. | Neon PostgreSQL (or custom) | Python + Docker |
 
@@ -234,9 +234,9 @@ If you want to run the pipeline **without installing anything locally** (except 
    - `make docker_run` – executes the pipeline
    - `make docker_clean` – removes temporary artifacts
 
-2. **Database**: This run uses a **local PostgreSQL container** (defined in `docker-compose.yaml`), so you don't need to set up external database credentials.
+2. **Database**: This also run uses a **Neon PostgreSQL** (defined in `docker-compose.yaml`), you can set up external database credential as per your objective.
 
-No Python or dependencies are needed on your host machine – everything runs inside the container.
+No Python or dependencies are needed on your host machine – everything runs inside the container with a cloud DB.
 
 ![Docker Run Output](docs/images/docker-container.png)
 *Example Docker run logs showing the pipeline executing inside the container.*
