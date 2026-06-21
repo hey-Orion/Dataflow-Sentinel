@@ -3,26 +3,32 @@ import logging
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
 
-
 def init_monitoring() -> None:
     dsn = os.getenv("SENTRY_DSN")
+    env = os.getenv("ENV", "development")
 
-    # Skip Sentry during tests or if no DSN is set
-    if not dsn or os.getenv("ENV") == "TESTING":
+    if not dsn:
+        print("⚠️ Sentry initialization SKIPPED: SENTRY_DSN environment variable is not set.")
+        return
+
+    if env == "TESTING":
+        print("⚠️ Sentry initialization SKIPPED: Environment is set to TESTING.")
         return
 
     sentry_sdk.init(
         dsn=dsn,
-        environment=os.getenv("ENV", "development"),
+        environment=env,
         integrations=[
             LoggingIntegration(
-                level=logging.INFO,
-                event_level=logging.ERROR,
+                level=logging.INFO,       
+                event_level=logging.ERROR,  #
             )
         ],
         traces_sample_rate=1.0,
         attach_stacktrace=True,
     )
+    
+    print(f"✅ Sentry initialized successfully in [{env}] environment.")
 
 
 def set_run_context(run_id: str) -> None:
