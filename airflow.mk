@@ -11,7 +11,6 @@ up:
 down:
 	$(DOCKER_COMPOSE) down
 
-# Drops database volumes, clears cache, and starts fresh
 init-fresh:
 	$(DOCKER_COMPOSE) down -v
 	$(DOCKER_COMPOSE) build --no-cache
