@@ -6,12 +6,13 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+py_env/
 
 # Environment files (secrets)
 .env
-.env.local
+.env.airflow
 .env.example
-.env.local.example
+.env.airflow.example
 
 # Git
 .git/
