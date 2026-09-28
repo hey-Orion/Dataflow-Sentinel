@@ -2,9 +2,13 @@ assets:
 - AAPL
 - BTC-USD
 - ETH-USD
+- SOL-USD
 - SPY
 - TSLA
 - GC=F
+- AMZN
+- NVDA
+- META
 
 start_date: "2020-01-01"
 end_date: null
