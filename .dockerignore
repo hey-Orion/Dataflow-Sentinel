@@ -10,8 +10,10 @@ py_env/
 
 # Environment files (secrets)
 .env
+.env.dbt
 .env.airflow
 .env.example
+.env.dbt.example
 .env.airflow.example
 
 # Git

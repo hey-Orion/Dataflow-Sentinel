@@ -1,4 +1,4 @@
-.PHONY: help install run test clean all docker_build docker_test docker_run docker_clean docker_all
+.PHONY: help install run test clean all docker_build docker_test docker_run docker_clean docker_all dbt_run
 
 include airflow.mk
 
@@ -54,3 +54,9 @@ docker_clean:
 	docker compose down --volumes --remove-orphans
 
 docker_all: docker_test docker_run docker_clean
+
+
+# App-specific dbt, BigQuery execution commands
+
+dbt_run:
+	python -m warehouse_export.export_to_bigquery

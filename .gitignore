@@ -12,6 +12,8 @@ dbt-env/
 # Environment files
 .env
 .env.airflow
+.env.dbt
+.gcp/
 
 # Logs
 logs/
