@@ -7,6 +7,7 @@ __pycache__/
 .venv/
 venv/
 py_env/
+dbt-env/
 
 # Environment files (secrets)
 .env
@@ -15,6 +16,7 @@ py_env/
 .env.example
 .env.dbt.example
 .env.airflow.example
+.gcp/
 
 # Git
 .git/
@@ -23,4 +25,3 @@ py_env/
 # Runtime artifacts
 data/
 logs/
-

@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_market_data
+    description: "Cleaned, typed OHLCV data. One row per symbol per trading day."
+    columns:
+      - name: symbol
+        tests:
+          - not_null
+      - name: trade_date
+        tests:
+          - not_null
+      - name: close_price
+        tests:
+          - not_null

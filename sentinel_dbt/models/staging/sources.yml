@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: sentinel_raw
+    tables:
+      - name: raw_market_data
+        description: "Silver layer market data exported from Neon Postgres. OHLCV per symbol per day, ~19k rows."
+        columns:
+          - name: id
+            tests:
+              - unique
+              - not_null
+          - name: symbol
+            tests:
+              - not_null
+          - name: date
+            tests:
+              - not_null
+          - name: close
+            tests:
+              - not_null
