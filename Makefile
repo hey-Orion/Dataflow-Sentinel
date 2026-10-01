@@ -15,6 +15,9 @@ help:
 	@echo "    make init-fresh     Completely reset and rebuild Airflow"
 	@echo "    make trigger        Force trigger the sentinel_pipeline DAG"
 	@echo "    make status         Check container statuses"
+	@echo "    BigQuery command"
+	@echo ""
+	@echo "    make BQ_export      exports data from neon to BigQuery"
 
 
 # Local execution commands
