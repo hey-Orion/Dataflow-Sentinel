@@ -13,6 +13,7 @@ The project mirrors a real‑world **DataOps / Data Engineering** system and emp
 * Containerized reproducibility
 * CI‑driven automation with Github Actions
 * **Production‑grade orchestration with Apache Airflow**
+* **SQL-based analytical modeling with dbt on BigQuery**
 
 The system is intentionally compact but architected using production principles.
 
@@ -53,6 +54,21 @@ External Data Source
  ┌────────────┐
  │ Monitoring │  (freshness.json)
  └────────────┘
+        │
+        ▼ (Silver, separately)
+ ┌────────────┐
+ │  Export    │  (warehouse_export/export_to_bigquery.py)
+ └────────────┘
+        │
+        ▼
+ ┌────────────┐
+ │  BigQuery  │  (sentinel_raw dataset)
+ └────────────┘
+        │
+        ▼
+ ┌────────────┐
+ │    dbt     │  (sentinel_dbt/ staging + marts)
+ └────────────┘
 ```
 
 The pipeline is **orchestrated by Apache Airflow and deployed on Github Actions**, which runs the tasks in a (DAG) and scheduled runs on actions. Each task encapsulates a specific stage of the pipeline. The underlying business logic resides in the `src/` modules.
@@ -65,6 +81,8 @@ The same orchestration logic is used across:
 * GitHub Actions (scheduled CI runs)
 
 This guarantees **behavioral parity across environments**.
+
+The dbt/BigQuery analytics layer (bottom branch) is a **separate, independently run addition**. It reads Silver data from Neon but is not wired into the Airflow DAG or GitHub Actions workflow — it runs manually, on its own schedule, and cannot affect the core pipeline's behavior.
 
 ---
 
@@ -87,11 +105,13 @@ The pipeline follows the **Bronze → Silver → Gold** medallion pattern to ens
 * Schema enforcement and quality checks applied
 * Safe for analytical consumption
 * No business aggregation logic
+* Persisted to Neon PostgreSQL — the only layer with a durable database table; also the source for the dbt/BigQuery analytics layer (Section 14)
 
 ### Gold Layer (`data/gold/`)
 
 * Aggregated, analytics‑ready outputs
 * Derived from validated Silver datasets
+* Regenerated as run-time artifacts on every pipeline execution (not persisted to Postgres)
 * Example artifacts:
 
   * `aggregates.csv`
@@ -151,6 +171,8 @@ Configuration is managed via:
 Workflows are defined in `.github/workflows/`:
 - `sentinel-pipeline.yml` – main pipeline execution
 - `pipeline-alerts.yml` – monitoring and alerting
+
+The dbt/BigQuery analytics layer is **not** included in these workflows at this time (see Section 14 and Section 15, Future Extensions).
 
 ---
 
@@ -233,6 +255,14 @@ If `SENTRY_DSN` is not provided, monitoring remains disabled — ensuring safe l
 
 This layer enhances operational visibility beyond CI logs by providing persistent external error tracking.
 
+### 5.8 Warehouse Export (`warehouse_export/export_to_bigquery.py`)
+
+* Reads the Silver table from Neon PostgreSQL via SQLAlchemy.
+* Loads it into a BigQuery raw table (`sentinel_raw.raw_market_data`) using the `google-cloud-bigquery` client.
+* Uses `WRITE_TRUNCATE`, replacing the table fully on each run — consistent with the project's idempotent-rerun principle.
+* Completely isolated from `src/pipeline.py`: it only reads from Neon, never writes to it, and its failure cannot affect the core pipeline.
+* Run manually (`python -m warehouse_export.export_to_bigquery`), not yet part of any scheduled workflow.
+
 ---
 
 ## 6. Configuration Management
@@ -251,6 +281,7 @@ Multiple `.env` files are used for different contexts:
 |------|---------|
 | `.env` | Base defaults (used in local runs and Docker‑compose runs) |
 | `.env.airflow` | Overrides for Airflow execution |
+| `.env.dbt` | BigQuery project/dataset config and service account keyfile path for the analytics layer |
 
 Secrets and environment‑specific values are never hard‑coded; they are injected at runtime.
 
@@ -264,6 +295,7 @@ The pipeline is designed to be safely re‑executed without corrupting state.
 * Deterministic transformations ensure consistent outputs.
 * Re‑running the pipeline produces stable results.
 * Gold metrics always reflect the latest validated Silver state.
+* The warehouse export and dbt models follow the same principle: `WRITE_TRUNCATE` on export, and dbt's own idempotent view/table materialization on each `dbt run`.
 
 This makes the system suitable for scheduled CI runs and production‑like environments.
 
@@ -284,6 +316,8 @@ Tests reside under `tests/` and mirror the source structure.
 * Covers happy paths and failure cases
 * Includes validation edge cases
 * Protects against regressions during refactors
+
+The dbt analytics layer has a parallel but separate test suite, declared in YAML rather than Python (`dbt test`) — see Section 14.
 
 Testing ensures architectural guarantees remain intact as the project evolves.
 
@@ -323,6 +357,7 @@ CI runs the pipeline using the same Docker image as local development, ensuring 
 * CI email alerts on workflow failure.
 * **Airflow UI** for real‑time task monitoring, logs.
 * Sentry for persistent external error tracking.
+* dbt test results and auto-generated documentation (`dbt docs generate`) for the analytics layer.
 
 The system combines these layers to provide comprehensive visibility.
 
@@ -347,6 +382,7 @@ The system combines these layers to provide comprehensive visibility.
 * Introduce anomaly detection
 * Add observability dashboards (Grafana)
 * Implement alert thresholds for freshness violations
+* Wire the warehouse export and `dbt run`/`dbt test` into the Airflow DAG as a scheduled task
 
 ---
 
@@ -363,3 +399,62 @@ The system prioritizes:
 * Operational realism
 
 It is intentionally simple in scope but structured to reflect real‑world data engineering practices.
+
+---
+
+## 14. Analytics Layer (dbt + BigQuery)
+
+A separate, optional analytical layer built on top of the Silver data, using SQL-based transformation instead of the Python-based Gold layer. It exists to demonstrate a second, dbt-native approach to analytical modeling — not to replace Gold, which continues to serve its original purpose (freshness monitoring and CI alerting artifacts).
+
+### 14.1 Why a Second Layer, Not a Replacement
+
+The Python Gold layer computes simple aggregates (latest close, 7d/30d averages, latest volume) and freshness status, feeding the pipeline's own monitoring. The dbt layer is intentionally scoped to compute **different** analytical signals that Gold does not:
+
+* Day-over-day return percentages
+* Rolling volatility (7d/30d standard deviation of returns)
+* Moving-average crossover trend signals
+
+This keeps the two layers complementary rather than redundant.
+
+### 14.2 Data Flow
+
+```
+Neon (Silver table)
+      │
+      ▼
+warehouse_export/export_to_bigquery.py
+      │
+      ▼
+BigQuery: sentinel_raw.raw_market_data
+      │
+      ▼
+dbt staging: stg_market_data
+      │
+      ▼
+dbt marts: daily_returns, volatility, ma_crossover
+```
+
+### 14.3 Components
+
+**Export script** (`warehouse_export/`)
+* `export_to_bigquery.py` — reads Silver from Neon, loads into BigQuery
+* `config.py` — environment-driven configuration (Neon connection, BigQuery project/dataset/table)
+
+**dbt project** (`sentinel_dbt/`)
+* `models/staging/sources.yml` — declares the raw BigQuery table as a dbt source, with column-level tests
+* `models/staging/stg_market_data.sql` — cleans and types the raw export; filters out rows with a null `close` (a known source-data characteristic, documented in `sources.yml` rather than tested there)
+* `models/marts/daily_returns.sql` — day-over-day % change via `LAG()`
+* `models/marts/volatility.sql` — rolling standard deviation of returns
+* `models/marts/ma_crossover.sql` — moving average crossover signal
+
+### 14.4 Isolation from the Core Pipeline
+
+* Runs in a separate Python virtual environment (`dbt-env`), avoiding dependency conflicts with Airflow or the core pipeline.
+* Reads from Neon but never writes to it.
+* Writes only to its own BigQuery dataset.
+* Not imported by, or wired into, `src/pipeline.py`, the Airflow DAG, or GitHub Actions workflows.
+* A failure anywhere in this layer cannot affect the core pipeline's execution or its reliability guarantees (Section 1).
+
+### 14.5 Data Quality Note
+
+During initial testing, 19 rows (out of ~19,154) in the raw export were found to have a null `close` value, consistently across the same handful of trading dates for multiple symbols — consistent with a same-day data-fetch timing gap at the source (`open`/`high`/`low`/`volume` present, `close` not yet posted). This is documented as an accepted source-data characteristic in `sources.yml`, with the actual guarantee enforced downstream: `stg_market_data` filters these rows out, and a `not_null` test on `close_price` in the staging model confirms the cleaned output is always complete.

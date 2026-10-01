@@ -14,6 +14,7 @@ Pipeline health signals are surfaced through multiple monitoring layers:
 * **Email notifications** – success / failure alerts
 * **Sentry** – runtime exception tracking with full stack traces
 * **Apache Airflow UI** – real‑time DAG status, task logs, and historical runs
+* **dbt test** – data quality and schema validation for the analytics layer (run manually, not yet alerted on)
 
 Email alerts are triggered for:
 
@@ -40,6 +41,8 @@ Airflow provides:
 * Runtime errors are persisted externally via Sentry
 * Failures must always be actionable
 * Silent failures are unacceptable
+
+> **Scope note:** Sections 1–6 below cover the core pipeline (Ingestion → Validation → Storage → Metrics), which is scheduled, alerted, and monitored as described. The dbt/BigQuery analytics layer is **not** part of this alerting surface — it runs manually and has no email/Sentry/Airflow coverage. Its own failure modes and recovery steps are covered separately in **Section 7**.
 
 ---
 
@@ -336,6 +339,12 @@ Additionally:
 * Airflow DAG run status: **Success** (all tasks marked green)
 * No unhandled exceptions in Sentry
 
+For the dbt/BigQuery analytics layer specifically, a healthy run produces:
+
+* `dbt run`: all models reported `OK created` with zero errors
+* `dbt test`: all tests `PASS`
+* Row count in `sentinel_raw.raw_market_data` matches (or sensibly exceeds) the prior run — a large unexplained drop signals an export problem, not a dbt problem
+
 ---
 
 ## 6. Operational Philosophy
@@ -354,3 +363,64 @@ Principles:
 Failures are expected.
 
 **Silent or unhandled failures are not acceptable.**
+
+---
+
+## 7. 🧱 Analytics Layer (dbt + BigQuery) — Failure Modes & Recovery
+
+This section covers the export script and dbt project separately from the core pipeline above, since it runs independently and is not covered by the alerting in Section 1.
+
+### 7.1 Alert Conditions
+
+Because this layer has no automated alerting yet, these must be checked manually:
+
+* `python -m warehouse_export.export_to_bigquery` exits non‑zero or logs `Export failed`
+* `dbt run` reports any model with status other than `OK`
+* `dbt test` reports any `FAIL` (as opposed to the one *expected*, documented exception described in Section 7.4)
+* Row count in BigQuery's `sentinel_raw.raw_market_data` is unexpectedly low or zero after an export run
+
+### 7.2 Incident Response Procedure
+
+**Step 1 — Check the export script output.**
+The script logs each stage (Neon connection, row count read, BigQuery load, final row count). A failure at the Neon-read stage points to a Postgres/credentials issue; a failure at the BigQuery-load stage points to a GCP/permissions issue.
+
+**Step 2 — Verify Neon connectivity independently.**
+Confirm the `NEON_DB_URL` in `.env` is current and the Silver table (`market_data`) is reachable — the same database health checks from Section 3, Step 5 apply here.
+
+**Step 3 — Verify BigQuery/GCP credentials.**
+Confirm:
+
+* `BQ_KEYFILE_PATH` points to a valid, un-expired service account JSON key
+* The service account still has `BigQuery Data Editor` and `BigQuery Job User` roles (IAM changes can silently revoke these)
+* The GCP project has not hit a billing or quota issue (check the Cloud Console billing page)
+
+**Step 4 — Re-run the export, then dbt, in order.**
+dbt depends on the export having run first — if `dbt run` fails with a missing-table error, the export likely did not complete successfully. Always re-run the export before re-running dbt.
+
+```bash
+python -m warehouse_export.export_to_bigquery
+cd sentinel_dbt
+dbt run
+dbt test
+```
+
+**Step 5 — Inspect the specific dbt error.**
+`dbt run`/`dbt test` output names the exact model and compiled SQL file on failure (under `target/compiled/`) — inspect that file directly rather than guessing from the model name alone.
+
+### 7.3 Recovery Actions
+
+| Failure | Recovery |
+|---|---|
+| Neon connection failure | Verify `NEON_DB_URL`, confirm Neon instance is awake (Neon free tier can suspend idle instances) |
+| BigQuery auth failure | Regenerate service account key if expired/revoked; re-check IAM roles |
+| `dbt run` fails on a model | Inspect compiled SQL under `target/compiled/`; check for a source schema change upstream |
+| `dbt test` fails unexpectedly (not the known `close` nulls) | Treat as a genuine data quality finding — investigate before suppressing the test |
+| Row count drops sharply after export | Check Neon directly first — confirms whether the Silver table itself lost rows, or the export/load step is at fault |
+
+### 7.4 Known, Accepted Test Exception
+
+The raw BigQuery source does **not** carry a `not_null` test on `close`, because 19 rows (of ~19,154) are expected to have a null `close` value due to a same-day data-fetch timing gap at the source (see `ARCHITECTURE.md`, Section 14.5, for the full investigation). The real guarantee is enforced one layer downstream: `stg_market_data` filters these rows out, and its own `not_null` test on `close_price` confirms the cleaned output is always complete. If `dbt test` ever fails on `not_null_stg_market_data_close_price`, that is a genuine regression and must be investigated — it is not the same known exception.
+
+### 7.5 Isolation Guarantee
+
+A failure anywhere in this layer — export script, BigQuery, or dbt — **cannot** affect the core pipeline (Sections 1–6). The analytics layer only reads from Neon; it never writes to it, and it is not imported by, or triggered from, `src/pipeline.py`, the Airflow DAG, or any GitHub Actions workflow.

@@ -12,6 +12,8 @@ Production-Inspired DataOps Pipeline with Freshness Monitoring & CI Alerting
 ![Airflow](https://img.shields.io/badge/Orchestrator-Apache_Airflow-orange)
 ![CI](https://img.shields.io/badge/CI-GitHub_Actions-success)
 ![Docker](https://img.shields.io/badge/Containerized-Docker-blue)
+![dbt](https://img.shields.io/badge/Transformation-dbt-orange)
+![BigQuery](https://img.shields.io/badge/Warehouse-BigQuery-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 Modern pipelines often *run* but silently degrade — schemas drift, data becomes stale, and failures go unnoticed.
@@ -41,6 +43,7 @@ This project demonstrates:
 * CI-driven monitoring and alerting
 * Environment parity (Local ↔ Docker ↔ CI)
 * **Production-grade orchestration with Apache Airflow and Github Actions**
+* **SQL-based analytical modeling with dbt on BigQuery**
 
 It simulates a production-grade DataOps project in a compact, readable system.
 
@@ -100,17 +103,19 @@ No silent degradation.
 
 ## Project Structure
 
-![Project Structure](docs/images/project-structure-1.png)
+![Project Structure](docs/images/p_folder.png)
 
 
 ```
-src/        Core pipeline logic ingestion, validation, storage, Metrics
-data/       Bronze / Silver / Gold
-tests/      Pytest-based unit & integration tests
-config/     Runtime / assets configuration (assets.yaml)
-logs/       Structured execution logs
-docs/       Architecture & operational runbook
-airflow/    Orchestration logic and Dag file
+src/                Core pipeline logic ingestion, validation, storage, Metrics
+data/               Bronze / Silver / Gold
+tests/              Pytest-based unit & integration tests
+config/             Runtime / assets configuration (assets.yaml)
+logs/               Structured execution logs
+docs/               Architecture & operational runbook
+airflow/            Orchestration logic and Dag file
+warehouse_export/   Neon (Postgres) -> BigQuery export for analytics layer
+sentinel_dbt/        dbt project: staging + mart models on BigQuery
 ```
 
 The structure enforces strict separation of concerns and stage isolation.
@@ -143,6 +148,12 @@ The structure enforces strict separation of concerns and stage isolation.
 
    * Writes `freshness.json`
    * Triggers CI-based email alerts when needed
+
+6. **Analytics Layer (dbt + BigQuery)**
+
+   * Exports the Silver table from Neon into BigQuery
+   * dbt builds staging and mart models on top of it
+   * Produces analytical views the Python Gold layer does not: daily returns, rolling volatility, and moving-average crossover signals
 
 
 ### Gold Layer Output Example (freshness Artifact)
@@ -328,6 +339,55 @@ For full orchestration with Apache Airflow, use this method. It runs the pipelin
 
 ---
 
+### 5. Analytics Layer (dbt + BigQuery)
+
+A separate, optional analytics layer that transforms Silver-layer data into new analytical models using dbt on BigQuery. This runs independently of the core pipeline above — it reads from Neon, but does not write back to it or affect the live pipeline in any way.
+
+#### Prerequisites
+- A GCP project with the BigQuery API enabled
+- A service account JSON key with `BigQuery Data Editor` and `BigQuery Job User` roles
+- A separate Python virtual environment (`dbt-env`) with `dbt-bigquery` and `google-cloud-bigquery` installed
+
+#### Steps
+
+1. **Export Silver data from Neon into BigQuery**:
+   ```bash
+   python -m warehouse_export.export_to_bigquery
+   ```
+   This reads the Silver table from Neon and loads it into `sentinel_raw.raw_market_data` in BigQuery.
+
+2. **Run the dbt models**:
+   ```bash
+   cd sentinel_dbt
+   dbt run
+   ```
+
+3. **Run the dbt tests**:
+   ```bash
+   dbt test
+   ```
+
+![dbt Run Output](docs/images/dbt_op.png)
+*Example terminal output after a successful dbt run and test pass.*
+
+#### What It Produces
+
+Unlike the Python Gold layer, this analytics layer is SQL-native and adds new analytical models not present elsewhere in the pipeline:
+
+| Model | Description |
+|-------|-------------|
+| `stg_market_data` | Cleaned, typed staging model over the raw BigQuery export |
+| `daily_returns` | Day-over-day % price change per symbol |
+| `volatility` | 7-day and 30-day rolling standard deviation of returns |
+| `ma_crossover` | 7-day/30-day moving average crossover trend signal (bullish/bearish) |
+
+![BigQuery Dashboard](docs/images/BQ_d.png)
+*BigQuery console showing the sentinel_dbt dataset with all four models.*
+
+**Database**: Reads from Neon PostgreSQL; writes to a separate BigQuery dataset. Does not modify Neon or affect the core pipeline.
+
+---
+
 ### Summary of Makefile Commands
 
 | Command | Purpose |
@@ -341,7 +401,7 @@ For full orchestration with Apache Airflow, use this method. It runs the pipelin
 | `make status` | Check Airflow container status |
 | `make logs` | View Airflow container logs |
 
-Choose the run mode that best suits your workflow. For most development, start with **local**; for CI‑like validation, use **Docker**; for production‑grade scheduling, use **Airflow**.
+Choose the run mode that best suits your workflow. For most development, start with **local**; for CI‑like validation, use **Docker**; for production‑grade scheduling, use **Airflow**; for analytical modeling, use **dbt + BigQuery**.
 
 ---
 
@@ -364,11 +424,11 @@ This decouples runtime symbols (e.g., ticker symbols, file paths datetime) from 
 Multiple environment files are provided for different contexts:
 
 # File Purpose
-* .env Base defaults (used in local runs)
+* .env Base defaults (used in local/docker runs)
 * .env.airflow Overrides for Airflow execution
-* .env.docker Overrides for Docker‑compose runs
+* .env.dbt BigQuery project/dataset config and service account keyfile path for the analytics layer
 
-Sensitive values (like SENTRY_DSN) should never be committed; instead, use GitHub Secrets for CI runs.
+Sensitive values (like SENTRY_DSN and the BigQuery service account keyfile) should never be committed; instead, use GitHub Secrets for CI runs.
 
 ---
 
@@ -378,6 +438,7 @@ Sensitive values (like SENTRY_DSN) should never be committed; instead, use GitHu
 * Tests mirror the `src/` structure
 * Covers ingestion, validation, storage and gold_metrics
 * Enforced in CI to prevent regressions
+* The dbt analytics layer has its own test suite (`dbt test`), covering source data quality and staging model guarantees
 
 Run tests locally:
 
@@ -393,6 +454,7 @@ pytest tests/
 * Data freshness tracking in `data/gold/freshness.json`
 * CI email alerts on failure
 * Airflow UI for real‑time task monitoring and runs
+* dbt test results and auto-generated docs (`dbt docs generate`) for the analytics layer
 
 Operational response guide:
 
@@ -455,6 +517,11 @@ Sentry is optional in local development and activates only when `SENTRY_DSN` is 
 * Apache Airflow
 * GitHub Actions
 
+**Analytics & Transformation**
+
+* dbt (BigQuery adapter)
+* Google BigQuery
+
 **Infrastructure**
 
 * PostgreSQL (Local & Neon)
@@ -484,6 +551,7 @@ Sentry is optional in local development and activates only when `SENTRY_DSN` is 
 * No dashboard UI
 * Limited anomaly detection beyond freshness
 * Optimized for clarity and reliability over scale
+* The dbt/BigQuery analytics layer runs independently of the core orchestration (not yet wired into the Airflow DAG or GitHub Actions)
 
 ---
 
@@ -493,6 +561,8 @@ Sentry is optional in local development and activates only when `SENTRY_DSN` is 
 * Add anomaly-based monitoring
 * Integrate observability dashboards (Grafana)
 * Expand alert channels (Slack / Discord)
+* Wire the dbt export/run steps into the Airflow DAG as a scheduled task
+* Expand dbt mart models (e.g., sector/asset-class rollups, additional technical indicators)
 
 ---
 
