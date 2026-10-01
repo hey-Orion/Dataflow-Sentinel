@@ -1,25 +1,39 @@
-# Python
+# --- ENVIRONMENT & SECRETS (SECURITY FIRST) ---
+# Ignore all .env files by default
+.env*
+# Expressly allow template/example files to be tracked in Git
+!.env.example
+!.env.*.example
+
+# GCP Credentials
+.gcp/
+
+# --- PYTHON & CACHE ---
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
+.coverage
+htmlcov/
 
-# Virtual environments
+# --- VIRTUAL ENVIRONMENTS ---
 .venv/
 venv/
 py_env/
 dbt-env/
 
-# Environment files
-.env
-.env.dbt
-.env.airflow
-.gcp/
-
-# Logs
+# --- LOCAL DATA & RUNTIME ARTIFACTS ---
+data/
 logs/
 !.gitkeep
 
-# Data layers
-data/bronze/
-data/silver/
-data/gold/
+# --- DBT ARTIFACTS ---
+**/target/
+**/dbt_packages/
+
+# --- IDE & SYSTEM FILES ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

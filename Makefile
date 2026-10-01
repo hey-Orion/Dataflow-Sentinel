@@ -59,5 +59,5 @@ docker_all: docker_test docker_run docker_clean
 
 # App-specific dbt, BigQuery execution commands
 
-dbt_run:
+BQ_export:
 	python -m warehouse_export.export_to_bigquery

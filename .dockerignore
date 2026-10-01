@@ -1,27 +1,39 @@
-# Python cache
+# --- PYTHON & BUILD CACHE ---
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
+.coverage
+htmlcov/
 
-# Virtual environments
+# --- VIRTUAL ENVIRONMENTS ---
 .venv/
 venv/
 py_env/
 dbt-env/
 
-# Environment files (secrets)
+# --- SECRETS & LOCAL ENVS ---
 .env
-.env.dbt
-.env.airflow
-.env.example
-.env.dbt.example
-.env.airflow.example
+.env.*
+!.env.example
+!.env.*.example
 .gcp/
 
-# Git
+# --- GIT & CI/CD ---
 .git/
 .github/
 
-# Runtime artifacts
+# --- IDE & SYSTEM ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# --- LOCAL DATA & EXPORTS ---
 data/
 logs/
+
+# --- DBT ARTIFACTS ---
+**/target/
+**/dbt_packages/
+**/logs/
